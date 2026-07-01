@@ -6,7 +6,7 @@ A simplified, open-source take on a real-world transaction command platform, bui
 
 ## Status
 
-Work in progress — see `docs/implementation-status.md` for the current phase.
+Work in progress.
 
 ## Quickstart
 
@@ -22,3 +22,11 @@ curl http://localhost:8080/actuator/health
 - Apache Kafka (KRaft mode)
 - Docker / docker-compose
 - GitHub Actions CI
+- OpenAPI 3 (contract-first, `openapi-generator-maven-plugin`)
+
+## API
+
+Contract-first, defined in `src/main/resources/openapi/oas3.yaml`. Transaction commands
+(`CREDIT`, `DEBIT`, `REVERSAL`) move through a validated status lifecycle:
+`RECEIVED → VALIDATED → DISPATCHED → PROCESSING → COMPLETED`, with `FAILED → RETRY →
+DEAD_LETTERED` as the failure path.
