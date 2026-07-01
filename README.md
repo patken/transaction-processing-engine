@@ -30,3 +30,31 @@ Contract-first, defined in `src/main/resources/openapi/oas3.yaml`. Transaction c
 (`CREDIT`, `DEBIT`, `REVERSAL`) move through a validated status lifecycle:
 `RECEIVED → VALIDATED → DISPATCHED → PROCESSING → COMPLETED`, with `FAILED → RETRY →
 DEAD_LETTERED` as the failure path.
+
+Endpoints implemented so far (base path `/api/v1`):
+
+```bash
+# Create a transaction command — idempotent on businessId (resubmitting returns 200 + the existing transaction)
+curl -X POST http://localhost:8080/api/v1/transactions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "businessId": "unique-client-id-123",
+    "type": "CREDIT",
+    "amount": 150.00,
+    "currency": "CAD",
+    "sourceAccount": "ACC-001",
+    "targetAccount": "ACC-002"
+  }'
+
+# Get by transaction id
+curl http://localhost:8080/api/v1/transactions/{transactionId}
+
+# Get by businessId
+curl http://localhost:8080/api/v1/transactions/business/{businessId}
+```
+
+`GET /api/v1/transactions` (paginated list) lands in Phase 3. Authentication (JWT,
+required on every endpoint per ADR-007) and RFC 7807 error responses for not-found /
+validation / conflict cases are not wired up yet — both arrive later (Phase 8 and
+Phase 9 respectively); until then, endpoints are open and unhandled business
+exceptions surface as a generic 500.

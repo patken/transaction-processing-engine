@@ -1,11 +1,24 @@
 package com.patken.transaction.domain;
 
+import com.patken.transaction.domain.exception.InvalidStateTransitionException;
 import org.springframework.stereotype.Component;
 
 import java.util.EnumMap;
-import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import static com.patken.transaction.domain.TransactionStatus.COMPLETED;
+import static com.patken.transaction.domain.TransactionStatus.DEAD_LETTERED;
+import static com.patken.transaction.domain.TransactionStatus.DISPATCHED;
+import static com.patken.transaction.domain.TransactionStatus.FAILED;
+import static com.patken.transaction.domain.TransactionStatus.PROCESSING;
+import static com.patken.transaction.domain.TransactionStatus.RECEIVED;
+import static com.patken.transaction.domain.TransactionStatus.RETRY;
+import static com.patken.transaction.domain.TransactionStatus.VALIDATED;
 
 /**
  * Validates transitions between {@link TransactionStatus} values. See
@@ -14,24 +27,46 @@ import java.util.Set;
 @Component
 public class TransactionStateMachine {
 
+    private record Transition(TransactionStatus from, TransactionStatus to) {
+    }
+
+    private static final List<Transition> TRANSITIONS = List.of(
+            new Transition(RECEIVED, VALIDATED),
+            new Transition(RECEIVED, FAILED),
+            new Transition(VALIDATED, DISPATCHED),
+            new Transition(VALIDATED, FAILED),
+            new Transition(DISPATCHED, PROCESSING),
+            new Transition(DISPATCHED, FAILED),
+            new Transition(PROCESSING, COMPLETED),
+            new Transition(PROCESSING, FAILED),
+            new Transition(FAILED, RETRY),
+            new Transition(FAILED, DEAD_LETTERED),
+            new Transition(RETRY, DISPATCHED),
+            new Transition(RETRY, DEAD_LETTERED)
+    );
+
     private static final Map<TransactionStatus, Set<TransactionStatus>> VALID_TRANSITIONS =
-            new EnumMap<>(TransactionStatus.class);
+            Stream.of(TransactionStatus.values())
+                    .collect(Collectors.toMap(
+                            Function.identity(),
+                            status -> TRANSITIONS.stream()
+                                    .filter(transition -> transition.from() == status)
+                                    .map(Transition::to)
+                                    .collect(Collectors.toUnmodifiableSet()),
+                            (a, b) -> a,
+                            () -> new EnumMap<>(TransactionStatus.class)));
 
     static {
-        VALID_TRANSITIONS.put(TransactionStatus.RECEIVED,
-                EnumSet.of(TransactionStatus.VALIDATED, TransactionStatus.FAILED));
-        VALID_TRANSITIONS.put(TransactionStatus.VALIDATED,
-                EnumSet.of(TransactionStatus.DISPATCHED, TransactionStatus.FAILED));
-        VALID_TRANSITIONS.put(TransactionStatus.DISPATCHED,
-                EnumSet.of(TransactionStatus.PROCESSING, TransactionStatus.FAILED));
-        VALID_TRANSITIONS.put(TransactionStatus.PROCESSING,
-                EnumSet.of(TransactionStatus.COMPLETED, TransactionStatus.FAILED));
-        VALID_TRANSITIONS.put(TransactionStatus.FAILED,
-                EnumSet.of(TransactionStatus.RETRY, TransactionStatus.DEAD_LETTERED));
-        VALID_TRANSITIONS.put(TransactionStatus.RETRY,
-                EnumSet.of(TransactionStatus.DISPATCHED, TransactionStatus.DEAD_LETTERED));
-        VALID_TRANSITIONS.put(TransactionStatus.COMPLETED, EnumSet.noneOf(TransactionStatus.class));
-        VALID_TRANSITIONS.put(TransactionStatus.DEAD_LETTERED, EnumSet.noneOf(TransactionStatus.class));
+        // Fail fast if @Terminal ever drifts from the transition table above, rather
+        // than letting an inconsistency surface later as a subtle production bug.
+        Stream.of(TransactionStatus.values()).forEach(status -> {
+            boolean hasOutgoingTransition = !VALID_TRANSITIONS.get(status).isEmpty();
+            if (status.isTerminal() == hasOutgoingTransition) {
+                throw new ExceptionInInitializerError(
+                        "%s: @Terminal (%s) disagrees with the transition table (hasOutgoingTransition=%s)"
+                                .formatted(status, status.isTerminal(), hasOutgoingTransition));
+            }
+        });
     }
 
     public boolean isValidTransition(TransactionStatus from, TransactionStatus to) {

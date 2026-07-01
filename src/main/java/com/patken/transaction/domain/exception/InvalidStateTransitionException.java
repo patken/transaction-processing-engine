@@ -1,4 +1,7 @@
-package com.patken.transaction.domain;
+package com.patken.transaction.domain.exception;
+
+import com.patken.transaction.domain.TransactionStateMachine;
+import com.patken.transaction.domain.TransactionStatus;
 
 /**
  * Thrown when a transition is attempted that {@link TransactionStateMachine} does not
