@@ -1,8 +1,8 @@
 package com.patken.transaction.unit;
 
-import com.patken.transaction.domain.InvalidStateTransitionException;
 import com.patken.transaction.domain.TransactionStateMachine;
 import com.patken.transaction.domain.TransactionStatus;
+import com.patken.transaction.domain.exception.InvalidStateTransitionException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -71,6 +71,18 @@ class TransactionStateMachineTest {
     void deadLetteredIsTerminal() {
         for (TransactionStatus to : TransactionStatus.values()) {
             assertThat(stateMachine.isValidTransition(TransactionStatus.DEAD_LETTERED, to)).isFalse();
+        }
+    }
+
+    @Test
+    void terminalAnnotationMatchesTheTransitionTable() {
+        for (TransactionStatus status : TransactionStatus.values()) {
+            boolean hasNoOutgoingTransition = java.util.Arrays.stream(TransactionStatus.values())
+                    .noneMatch(to -> stateMachine.isValidTransition(status, to));
+
+            assertThat(status.isTerminal())
+                    .as("%s.isTerminal()", status)
+                    .isEqualTo(hasNoOutgoingTransition);
         }
     }
 
