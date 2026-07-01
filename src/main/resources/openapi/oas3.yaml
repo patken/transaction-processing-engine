@@ -1,0 +1,345 @@
+openapi: 3.0.3
+info:
+  title: Transaction Processing Engine API
+  description: >
+    Event-driven transaction processing engine. Create, query, and track financial
+    transaction commands (CREDIT, DEBIT, REVERSAL) through their processing lifecycle.
+  version: 1.0.0
+  contact:
+    name: patken
+    url: https://github.com/patken/transaction-processing-engine
+
+servers:
+  - url: /api/v1
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: transactions
+    description: Transaction command creation and query operations
+
+paths:
+  /transactions:
+    post:
+      tags: [transactions]
+      operationId: createTransaction
+      summary: Create a transaction command
+      description: >
+        Creates a new transaction command. Idempotent on `businessId` — resubmitting
+        the same `businessId` returns the existing transaction (HTTP 200) instead of
+        creating a duplicate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+      responses:
+        '201':
+          description: Transaction created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '200':
+          description: Transaction already existed for this businessId (idempotent replay)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    get:
+      tags: [transactions]
+      operationId: listTransactions
+      summary: List transactions
+      description: Paginated, filterable by status.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/TransactionStatus'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Paginated list of transactions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /transactions/{transactionId}:
+    get:
+      tags: [transactions]
+      operationId: getTransactionById
+      summary: Get transaction by ID
+      description: Returns the current state of a transaction including its status.
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Transaction found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /transactions/business/{businessId}:
+    get:
+      tags: [transactions]
+      operationId: getTransactionByBusinessId
+      summary: Get transaction by businessId
+      description: Lookup by the client-provided businessId (idempotency check).
+      parameters:
+        - name: businessId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Locally-signed JWT (see ADR-007 / README for how to generate a test token).
+        Required on all operations, including reads — transaction data is financial
+        data and is never exposed unauthenticated.
+
+  schemas:
+    TransactionType:
+      type: string
+      enum: [CREDIT, DEBIT, REVERSAL]
+
+    TransactionStatus:
+      type: string
+      enum:
+        - RECEIVED
+        - VALIDATED
+        - DISPATCHED
+        - PROCESSING
+        - COMPLETED
+        - FAILED
+        - RETRY
+        - DEAD_LETTERED
+
+    CreateTransactionRequest:
+      type: object
+      required:
+        - businessId
+        - type
+        - amount
+        - currency
+        - sourceAccount
+        - targetAccount
+      properties:
+        businessId:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Client-provided idempotency key. Unique per transaction.
+          example: unique-client-id-123
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        amount:
+          type: number
+          format: decimal
+          exclusiveMinimum: true
+          minimum: 0
+          example: 150.00
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          example: CAD
+        sourceAccount:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: ACC-001
+        targetAccount:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: ACC-002
+        originalTransactionId:
+          type: string
+          format: uuid
+          description: >
+            Required and only valid when `type = REVERSAL`. References the
+            transaction being reversed. See ADR-008.
+        metadata:
+          type: object
+          additionalProperties: true
+          example:
+            description: Monthly transfer
+
+    TransactionResponse:
+      type: object
+      required:
+        - transactionId
+        - businessId
+        - type
+        - status
+        - amount
+        - currency
+        - sourceAccount
+        - targetAccount
+        - createdAt
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        businessId:
+          type: string
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        sourceAccount:
+          type: string
+        targetAccount:
+          type: string
+        originalTransactionId:
+          type: string
+          format: uuid
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TransactionPage:
+      type: object
+      required: [records, total, next]
+      properties:
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionResponse'
+        total:
+          type: integer
+          format: int64
+        next:
+          type: string
+          format: uri
+          nullable: true
+
+    Problem:
+      type: object
+      description: RFC 7807 problem details.
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          example: about:blank
+        title:
+          type: string
+          example: Invalid state transition
+        status:
+          type: integer
+          example: 409
+        detail:
+          type: string
+          example: Transaction cannot move from COMPLETED to DISPATCHED
+        instance:
+          type: string
+          format: uri
+
+  responses:
+    BadRequest:
+      description: Invalid request payload or query parameters
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Request conflicts with the current state of the resource
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

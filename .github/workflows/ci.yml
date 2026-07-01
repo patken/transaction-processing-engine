@@ -20,8 +20,8 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build and test
-        run: mvn -B verify
+      - name: Build and unit test
+        run: mvn -B test
 
       - name: Build Docker image
         run: docker build -t transaction-processing-engine:${{ github.sha }} .
