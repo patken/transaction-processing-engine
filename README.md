@@ -28,6 +28,7 @@ curl http://localhost:8080/actuator/health
 - Docker / docker-compose
 - GitHub Actions CI
 - OpenAPI 3 (contract-first, `openapi-generator-maven-plugin`)
+- Testcontainers (PostgreSQL) for integration tests — `mvn test` for unit tests, `mvn verify` runs both
 
 ## API
 
@@ -56,9 +57,18 @@ curl http://localhost:8080/api/v1/transactions/{transactionId}
 
 # Get by businessId
 curl http://localhost:8080/api/v1/transactions/business/{businessId}
+
+# List, paginated and filterable by status
+curl "http://localhost:8080/api/v1/transactions?status=RECEIVED&page=0&limit=20"
 ```
 
-`GET /api/v1/transactions` (paginated list) is next. Authentication (JWT, required on
-every endpoint per [ADR-007](docs/adr/007-security-strategy.md)) and RFC 7807 error
-responses for not-found / validation / conflict cases are not wired up yet — until
-then, endpoints are open and unhandled business exceptions surface as a generic 500.
+Idempotency (ADR-003) is strict: resubmitting a `businessId` with the exact same
+payload replays the original transaction (200); resubmitting it with a *different*
+payload (amount, accounts, type, originalTransactionId) is rejected as a conflict
+rather than silently accepted. Reversal accounts must mirror the original transaction's,
+swapped (ADR-008).
+
+Authentication (JWT, required on every endpoint per [ADR-007](docs/adr/007-security-strategy.md))
+and RFC 7807 error responses for not-found / validation / conflict cases are not wired
+up yet — until then, endpoints are open and unhandled business exceptions surface as a
+generic 500.

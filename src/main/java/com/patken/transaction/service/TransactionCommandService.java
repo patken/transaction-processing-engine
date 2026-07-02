@@ -12,6 +12,7 @@ import com.patken.transaction.persistence.TransactionRepository;
 import com.patken.transaction.service.mapper.TransactionMapper;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -46,7 +47,7 @@ public class TransactionCommandService {
                 request.getSourceAccount(),
                 request.getTargetAccount(),
                 request.getOriginalTransactionId(),
-                request.getMetadata(),
+                normalizeMetadata(request.getMetadata()),
                 correlationId
         );
 
@@ -54,7 +55,21 @@ public class TransactionCommandService {
         return new CommandResult(mapper.toResponse(result.transaction()), result.created());
     }
 
+    // C5: the generated DTO defaults metadata to an empty map rather than null, so
+    // "no metadata supplied" would otherwise be stored as '{}'::jsonb instead of NULL —
+    // breaking `metadata IS NULL` queries and the "not provided" semantics.
+    private static Map<String, Object> normalizeMetadata(Map<String, Object> metadata) {
+        return (metadata == null || metadata.isEmpty()) ? null : metadata;
+    }
+
     private void validate(CreateTransactionRequest request) {
+        // B5: NUMERIC(19,4) would otherwise round a higher-scale amount silently —
+        // a rounding error on a financial amount must be a 400, not a DB side effect.
+        if (request.getAmount().scale() > 4) {
+            throw new InvalidTransactionRequestException(
+                    "amount scale must not exceed 4 decimal places, got " + request.getAmount());
+        }
+
         TransactionType type = TransactionType.valueOf(request.getType().name());
 
         if (type == TransactionType.REVERSAL) {
@@ -88,6 +103,15 @@ public class TransactionCommandService {
         if (original.getAmount().compareTo(request.getAmount()) != 0) {
             throw new ReversalNotAllowedException(
                     "Reversal amount must equal the original transaction amount (" + original.getAmount() + ")");
+        }
+        // B3 (ADR-008 amended): a reversal mirrors the original's money movement, so
+        // its accounts must be the original's swapped — not client-chosen. This also
+        // transitively guarantees source != target, since the original already does.
+        if (!request.getSourceAccount().equals(original.getTargetAccount())
+                || !request.getTargetAccount().equals(original.getSourceAccount())) {
+            throw new ReversalNotAllowedException(
+                    "Reversal accounts must mirror the original transaction: sourceAccount="
+                            + original.getTargetAccount() + ", targetAccount=" + original.getSourceAccount());
         }
         if (repository.existsByOriginalTransactionId(originalId)) {
             throw new ReversalNotAllowedException("Transaction " + originalId + " has already been reversed");

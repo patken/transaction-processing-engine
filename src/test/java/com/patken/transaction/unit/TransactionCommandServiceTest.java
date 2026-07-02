@@ -137,6 +137,31 @@ class TransactionCommandServiceTest {
     }
 
     @Test
+    void rejectsReversalWithAccountsNotMirroringTheOriginal() {
+        // B3 (ADR-008 amended): reversal accounts must be the original's swapped, not
+        // client-chosen. Here the request keeps the original's accounts unswapped.
+        UUID originalId = UUID.randomUUID();
+        Transaction original = creditEntity(originalId, "biz-orig", TransactionStatus.COMPLETED, BigDecimal.valueOf(100));
+        when(repository.findById(originalId)).thenReturn(Optional.of(original));
+
+        CreateTransactionRequest request = reversalRequest(originalId, BigDecimal.valueOf(100), "ACC-001", "ACC-002");
+
+        assertThatThrownBy(() -> service.create(request, "corr-1"))
+                .isInstanceOf(ReversalNotAllowedException.class)
+                .hasMessageContaining("mirror");
+    }
+
+    @Test
+    void rejectsAmountWithMoreThanFourDecimalPlaces() {
+        CreateTransactionRequest request = creditRequest("ACC-001", "ACC-002");
+        request.setAmount(new BigDecimal("100.123456"));
+
+        assertThatThrownBy(() -> service.create(request, "corr-1"))
+                .isInstanceOf(InvalidTransactionRequestException.class)
+                .hasMessageContaining("scale");
+    }
+
+    @Test
     void rejectsReversalOfAlreadyReversedOriginal() {
         UUID originalId = UUID.randomUUID();
         Transaction original = creditEntity(originalId, "biz-orig", TransactionStatus.COMPLETED, BigDecimal.valueOf(100));
@@ -178,14 +203,20 @@ class TransactionCommandServiceTest {
         );
     }
 
+    /** Accounts mirror {@link #creditEntity}'s original (ACC-001 -> ACC-002), swapped, per B3/ADR-008. */
     private CreateTransactionRequest reversalRequest(UUID originalTransactionId, BigDecimal amount) {
+        return reversalRequest(originalTransactionId, amount, "ACC-002", "ACC-001");
+    }
+
+    private CreateTransactionRequest reversalRequest(UUID originalTransactionId, BigDecimal amount,
+                                                       String sourceAccount, String targetAccount) {
         CreateTransactionRequest request = new CreateTransactionRequest(
                 "biz-reversal",
                 com.patken.transaction.api.generated.dto.TransactionType.REVERSAL,
                 amount,
                 "CAD",
-                "ACC-001",
-                "ACC-002"
+                sourceAccount,
+                targetAccount
         );
         return request.originalTransactionId(originalTransactionId);
     }
