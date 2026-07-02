@@ -7,31 +7,37 @@ import com.patken.transaction.domain.TransactionType;
 import com.patken.transaction.domain.exception.InvalidTransactionRequestException;
 import com.patken.transaction.domain.exception.ReversalNotAllowedException;
 import com.patken.transaction.domain.exception.TransactionNotFoundException;
+import com.patken.transaction.messaging.producer.KafkaTransactionProducer;
 import com.patken.transaction.persistence.TransactionGateway;
 import com.patken.transaction.persistence.TransactionRepository;
 import com.patken.transaction.service.mapper.TransactionMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * Validates and persists transaction commands. Kafka publishing is wired in Phase 4 —
- * for now, transactions are created with status RECEIVED and {@code kafka_published =
- * false}; the Phase 6 recovery scheduler will pick them up once the producer exists.
+ * Validates and persists transaction commands, then publishes to Kafka
+ * (persist-before-publish, ADR-001) — transactions are created with status RECEIVED.
  */
 @Service
 public class TransactionCommandService {
 
+    private static final Logger log = LoggerFactory.getLogger(TransactionCommandService.class);
+
     private final TransactionRepository repository;
     private final TransactionGateway gateway;
     private final TransactionMapper mapper;
+    private final KafkaTransactionProducer producer;
 
     public TransactionCommandService(TransactionRepository repository, TransactionGateway gateway,
-                                      TransactionMapper mapper) {
+                                      TransactionMapper mapper, KafkaTransactionProducer producer) {
         this.repository = repository;
         this.gateway = gateway;
         this.mapper = mapper;
+        this.producer = producer;
     }
 
     public CommandResult create(CreateTransactionRequest request, String correlationId) {
@@ -52,7 +58,25 @@ public class TransactionCommandService {
         );
 
         TransactionGateway.PersistResult result = gateway.persistIdempotent(transaction);
+        if (result.created()) {
+            publish(result.transaction());
+        }
         return new CommandResult(mapper.toResponse(result.transaction()), result.created());
+    }
+
+    /**
+     * Not retried inline: the transaction is already durable (ADR-001), so a failure
+     * here just leaves {@code kafka_published = false} for the Phase 6 recovery
+     * scheduler to pick up — the API response still succeeds either way.
+     */
+    private void publish(Transaction transaction) {
+        try {
+            producer.publishCommand(transaction);
+            repository.markKafkaPublished(transaction.getId());
+        } catch (KafkaTransactionProducer.PublishException e) {
+            log.warn("Failed to publish transaction {} to Kafka; the Phase 6 recovery scheduler will retry it",
+                    transaction.getId(), e);
+        }
     }
 
     // C5: the generated DTO defaults metadata to an empty map rather than null, so

@@ -7,6 +7,7 @@ import com.patken.transaction.domain.TransactionType;
 import com.patken.transaction.domain.exception.InvalidTransactionRequestException;
 import com.patken.transaction.domain.exception.ReversalNotAllowedException;
 import com.patken.transaction.domain.exception.TransactionNotFoundException;
+import com.patken.transaction.messaging.producer.KafkaTransactionProducer;
 import com.patken.transaction.persistence.TransactionGateway;
 import com.patken.transaction.persistence.TransactionRepository;
 import com.patken.transaction.service.TransactionCommandService;
@@ -36,6 +37,9 @@ class TransactionCommandServiceTest {
     @Mock
     private TransactionGateway gateway;
 
+    @Mock
+    private KafkaTransactionProducer producer;
+
     private final TransactionMapper mapper = new TransactionMapperImpl();
 
     private TransactionCommandService service;
@@ -43,7 +47,7 @@ class TransactionCommandServiceTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        service = new TransactionCommandService(repository, gateway, mapper);
+        service = new TransactionCommandService(repository, gateway, mapper, producer);
     }
 
     @Test

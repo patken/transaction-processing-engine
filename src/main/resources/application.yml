@@ -18,6 +18,8 @@ spring:
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: transaction-processing-engine
 
 server:
   port: ${SERVER_PORT:8080}
@@ -30,3 +32,8 @@ management:
   endpoint:
     health:
       show-details: always
+
+transaction-engine:
+  backend-simulator:
+    dispatch-delay-ms: ${BACKEND_SIMULATOR_DISPATCH_DELAY_MS:20}
+    processing-delay-ms: ${BACKEND_SIMULATOR_DELAY_MS:100}
