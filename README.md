@@ -28,14 +28,17 @@ curl http://localhost:8080/actuator/health
 - Docker / docker-compose
 - GitHub Actions CI
 - OpenAPI 3 (contract-first, `openapi-generator-maven-plugin`)
-- Testcontainers (PostgreSQL) for integration tests — `mvn test` for unit tests, `mvn verify` runs both
+- Testcontainers (PostgreSQL, Kafka) for integration tests — `mvn test` for unit tests, `mvn verify` runs both
 
 ## API
 
 Contract-first, defined in `src/main/resources/openapi/oas3.yaml`. Transaction commands
 (`CREDIT`, `DEBIT`, `REVERSAL`) move through a validated status lifecycle:
 `RECEIVED → VALIDATED → DISPATCHED → PROCESSING → COMPLETED`, with `FAILED → RETRY →
-DEAD_LETTERED` as the failure path.
+DEAD_LETTERED` as the failure path. Creating a transaction now drives it through this
+full lifecycle automatically — no manual intervention: the API persists it (`RECEIVED`),
+publishes it to Kafka, and a consumer takes it the rest of the way to `COMPLETED`
+(happy path only for now; retry/DLQ on failures is Phase 5).
 
 Endpoints implemented so far (base path `/api/v1`):
 
