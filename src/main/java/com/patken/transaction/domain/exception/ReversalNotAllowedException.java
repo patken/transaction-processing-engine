@@ -10,4 +10,8 @@ public class ReversalNotAllowedException extends RuntimeException {
     public ReversalNotAllowedException(String message) {
         super(message);
     }
+
+    public ReversalNotAllowedException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

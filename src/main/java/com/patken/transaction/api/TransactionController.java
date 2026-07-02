@@ -4,13 +4,16 @@ import com.patken.transaction.api.generated.TransactionsApi;
 import com.patken.transaction.api.generated.dto.CreateTransactionRequest;
 import com.patken.transaction.api.generated.dto.TransactionPage;
 import com.patken.transaction.api.generated.dto.TransactionResponse;
-import com.patken.transaction.api.generated.dto.TransactionStatus;
+import com.patken.transaction.domain.TransactionStatus;
 import com.patken.transaction.service.TransactionCommandService;
 import com.patken.transaction.service.TransactionQueryService;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import java.net.URI;
 import java.util.UUID;
 
 @RestController
@@ -45,8 +48,21 @@ public class TransactionController implements TransactionsApi {
     }
 
     @Override
-    public ResponseEntity<TransactionPage> listTransactions(TransactionStatus status, Integer page, Integer limit) {
-        // Implemented in Phase 3 (query path: pagination and filtering).
-        throw new UnsupportedOperationException("listTransactions is implemented in Phase 3");
+    public ResponseEntity<TransactionPage> listTransactions(
+            com.patken.transaction.api.generated.dto.TransactionStatus status, Integer page, Integer limit) {
+        TransactionStatus domainStatus =
+                status == null ? null : TransactionStatus.valueOf(status.name());
+
+        Page<TransactionResponse> results = queryService.list(domainStatus, page, limit);
+
+        URI next = results.hasNext()
+                ? ServletUriComponentsBuilder.fromCurrentRequestUri()
+                        .replaceQueryParam("page", page + 1)
+                        .replaceQueryParam("limit", limit)
+                        .build()
+                        .toUri()
+                : null;
+
+        return ResponseEntity.ok(new TransactionPage(results.getContent(), results.getTotalElements(), next));
     }
 }
