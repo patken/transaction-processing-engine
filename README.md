@@ -8,6 +8,11 @@ A simplified, open-source take on a real-world transaction command platform, bui
 
 Work in progress.
 
+## Documentation
+
+- [Architecture overview](docs/architecture.md) — system flow, status lifecycle, key patterns (transactional outbox, SKIP LOCKED work queue, constraint-backed idempotency), data model, testing strategy.
+- [Architecture Decision Records](docs/adr/) — one ADR per non-obvious decision, with context, alternatives considered, and consequences (ADR-001 through ADR-008).
+
 ## Quickstart
 
 ```bash
@@ -53,8 +58,7 @@ curl http://localhost:8080/api/v1/transactions/{transactionId}
 curl http://localhost:8080/api/v1/transactions/business/{businessId}
 ```
 
-`GET /api/v1/transactions` (paginated list) lands in Phase 3. Authentication (JWT,
-required on every endpoint per ADR-007) and RFC 7807 error responses for not-found /
-validation / conflict cases are not wired up yet — both arrive later (Phase 8 and
-Phase 9 respectively); until then, endpoints are open and unhandled business
-exceptions surface as a generic 500.
+`GET /api/v1/transactions` (paginated list) is next. Authentication (JWT, required on
+every endpoint per [ADR-007](docs/adr/007-security-strategy.md)) and RFC 7807 error
+responses for not-found / validation / conflict cases are not wired up yet — until
+then, endpoints are open and unhandled business exceptions surface as a generic 500.
