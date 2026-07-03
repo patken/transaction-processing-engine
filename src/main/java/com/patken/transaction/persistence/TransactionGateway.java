@@ -5,6 +5,9 @@ import com.patken.transaction.domain.exception.IdempotencyConflictException;
 import com.patken.transaction.domain.exception.ReversalNotAllowedException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.TransientDataAccessException;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.Assert;
@@ -45,6 +48,8 @@ public class TransactionGateway {
      * @return the persisted transaction, and whether it was newly created (false = idempotent replay)
      * @throws IdempotencyConflictException if {@code businessId} is reused with a different payload
      */
+    @Retryable(retryFor = TransientDataAccessException.class, maxAttempts = 3,
+            backoff = @Backoff(delay = 100, multiplier = 2))
     public PersistResult persistIdempotent(Transaction transaction) {
         Assert.state(!TransactionSynchronizationManager.isActualTransactionActive(),
                 "persistIdempotent must run outside any existing transaction: the catch-after-flush "

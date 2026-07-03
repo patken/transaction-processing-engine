@@ -37,6 +37,14 @@ transaction-engine:
   backend-simulator:
     dispatch-delay-ms: ${BACKEND_SIMULATOR_DISPATCH_DELAY_MS:20}
     processing-delay-ms: ${BACKEND_SIMULATOR_DELAY_MS:100}
+    # 0.0 = never fail. Set > 0 (e.g. 1.0) to exercise the retry → DLQ path manually.
+    failure-rate: ${BACKEND_SIMULATOR_FAILURE_RATE:0.0}
+  processing:
+    # Shared retry ceiling (ADR-004) — reached by both consumer processing retries and,
+    # in Phase 6, the unpublished-transaction publish retries. Beyond it: DEAD_LETTERED + DLQ.
+    max-retries: ${PROCESSING_MAX_RETRIES:3}
+    backoff-ms: ${PROCESSING_BACKOFF_MS:100}
+    backoff-multiplier: ${PROCESSING_BACKOFF_MULTIPLIER:2.0}
   security:
     # ADR-007: locally-signed JWT, demo-grade only — never reuse this secret for
     # anything beyond this portfolio's demo. Override via JWT_SECRET in any

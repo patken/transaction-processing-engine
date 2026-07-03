@@ -51,6 +51,9 @@ services:
       DB_USER: transaction_engine
       DB_PASSWORD: transaction_engine
       KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      # Demo knob: set to e.g. 1.0 to make every transaction fail processing and land
+      # on the DLQ after the retry ceiling. Defaults to 0.0 (never fail).
+      BACKEND_SIMULATOR_FAILURE_RATE: "${BACKEND_SIMULATOR_FAILURE_RATE:-0.0}"
     depends_on:
       postgres:
         condition: service_healthy

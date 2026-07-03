@@ -11,6 +11,8 @@
 - `version` (optimistic) guards **cross-component writes** to the same row (e.g., API-side updates vs. consumer-side status updates) where holding a DB lock across the interaction would be wrong.
 
 **Consequences:**
-- Implemented in `TransactionGateway` (the designated extension point) when consumer processing lands — via a native query or Hibernate's `@Lock(PESSIMISTIC_WRITE)` with the SKIP LOCKED hint; the generated SQL must be asserted in an integration test, not assumed.
+- Implemented as `TransactionRepository.lockForProcessing` — a **native query** (`SELECT ... FOR UPDATE SKIP LOCKED`) so the SKIP LOCKED clause is guaranteed in the emitted SQL rather than left to Hibernate hint/dialect translation. The consumer's per-attempt logic lives in `TransactionProcessor` (not `TransactionGateway`, which stays focused on the create-path idempotent insert); the gateway and the processor are two distinct persistence concerns.
 - A transaction being processed is invisible to other workers rather than an error — retried naturally on the next cycle.
-- Lock scope must stay short: acquire → process → update status → commit, within one DB transaction.
+- Lock scope stays short and covers one attempt: acquire → drive status → record outcome → commit, within one DB transaction (`TransactionProcessor.attemptOnce`, `@Transactional`).
+- **This also structurally closed the Phase 4 `kafka_published` write race.** Because the consumer loads the row *after* acquiring the lock and mutates it as a managed entity, the API thread's `markKafkaPublished` update is serialized behind the lock — a whole-row flush by the consumer can no longer clobber the flag, so the targeted per-column update the Phase 4 consumer needed is gone.
+- Verified by `TransactionLockingIT`: a second worker gets an empty result immediately (skips) while a first holds the lock, rather than blocking.

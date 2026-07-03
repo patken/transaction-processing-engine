@@ -66,12 +66,32 @@ public class KafkaTransactionProducer {
         send(KafkaTopics.EVENTS, transaction.getId().toString(), transaction.getCorrelationId(), message);
     }
 
+    /**
+     * Publishes the original command to {@link KafkaTopics#DLQ} for ops replay (ADR-004),
+     * with the dead-letter reason as a header. The transaction is already DEAD_LETTERED
+     * in the DB (the source of truth) before this runs — a DLQ publish failure is logged
+     * by the caller, not retried; the DB state is what matters.
+     */
+    public void publishToDlq(TransactionCommandMessage command, String reason) throws PublishException {
+        ProducerRecord<String, Object> record =
+                new ProducerRecord<>(KafkaTopics.DLQ, null, command.transactionId().toString(), command);
+        record.headers().add(new RecordHeader("dlq-reason", reason.getBytes(StandardCharsets.UTF_8)));
+        if (command.correlationId() != null) {
+            record.headers().add(
+                    new RecordHeader("correlationId", command.correlationId().getBytes(StandardCharsets.UTF_8)));
+        }
+        awaitSend(KafkaTopics.DLQ, record);
+    }
+
     private void send(String topic, String key, String correlationId, Object payload) throws PublishException {
         ProducerRecord<String, Object> record = new ProducerRecord<>(topic, null, key, payload);
         if (correlationId != null) {
             record.headers().add(new RecordHeader("correlationId", correlationId.getBytes(StandardCharsets.UTF_8)));
         }
+        awaitSend(topic, record);
+    }
 
+    private void awaitSend(String topic, ProducerRecord<String, Object> record) throws PublishException {
         try {
             kafkaTemplate.send(record).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
