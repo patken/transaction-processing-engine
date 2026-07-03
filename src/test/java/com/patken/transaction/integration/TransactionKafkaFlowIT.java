@@ -3,11 +3,13 @@ package com.patken.transaction.integration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.patken.transaction.api.generated.dto.TransactionResponse;
 import com.patken.transaction.domain.Transaction;
+import com.patken.transaction.integration.support.AuthTestSupport;
 import com.patken.transaction.persistence.TransactionRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -76,8 +78,11 @@ class TransactionKafkaFlowIT {
                 }
                 """;
 
+        String token = AuthTestSupport.fetchTestToken(mockMvc);
+
         MvcResult createResult = mockMvc.perform(post("/api/v1/transactions")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .header(HttpHeaders.AUTHORIZATION, AuthTestSupport.bearer(token))
                         .content(requestBody))
                 .andExpect(status().isCreated())
                 .andReturn();

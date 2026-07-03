@@ -37,3 +37,8 @@ transaction-engine:
   backend-simulator:
     dispatch-delay-ms: ${BACKEND_SIMULATOR_DISPATCH_DELAY_MS:20}
     processing-delay-ms: ${BACKEND_SIMULATOR_DELAY_MS:100}
+  security:
+    # ADR-007: locally-signed JWT, demo-grade only — never reuse this secret for
+    # anything beyond this portfolio's demo. Override via JWT_SECRET in any
+    # environment that's more than a local/CI throwaway.
+    jwt-secret: ${JWT_SECRET:demo-only-secret-do-not-use-in-production-3f8a1c9e2b7d4f6a}
