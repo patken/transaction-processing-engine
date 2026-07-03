@@ -20,6 +20,24 @@ docker compose up -d --build
 curl http://localhost:8080/actuator/health
 ```
 
+## Try it locally (authentication)
+
+Every business endpoint requires a JWT — `GET` included, since transaction records are
+financial data (ADR-007). There's no external Identity Provider to sign up for: the
+app signs its own demo-grade tokens locally, and exposes one open endpoint to get one:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/dev/token | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+
+curl http://localhost:8080/api/v1/transactions -H "Authorization: Bearer $TOKEN"
+```
+
+`/dev/token` and `/actuator/health|info|prometheus` are the only endpoints that don't
+require a token. This is explicitly a demo-grade setup (see ADR-007's consequences) —
+no external IdP, no refresh tokens, no scopes/roles beyond a single "authenticated"
+claim, one-hour expiry. Swapping in a real IdP later is a config-only change (Spring
+Security's Resource Server already abstracts this).
+
 ## Tech Stack
 
 - Java 21, Spring Boot 3.5.6
@@ -28,6 +46,7 @@ curl http://localhost:8080/actuator/health
 - Docker / docker-compose
 - GitHub Actions CI
 - OpenAPI 3 (contract-first, `openapi-generator-maven-plugin`)
+- Spring Security (OAuth2 Resource Server, locally-signed JWT — ADR-007)
 - Testcontainers (PostgreSQL, Kafka) for integration tests — `mvn test` for unit tests, `mvn verify` runs both
 
 ## API
@@ -40,12 +59,13 @@ full lifecycle automatically — no manual intervention: the API persists it (`R
 publishes it to Kafka, and a consumer takes it the rest of the way to `COMPLETED`
 (happy path only for now; retry/DLQ on failures is Phase 5).
 
-Endpoints implemented so far (base path `/api/v1`):
+Endpoints implemented so far (base path `/api/v1`, all requiring `Authorization: Bearer $TOKEN` — see above):
 
 ```bash
 # Create a transaction command — idempotent on businessId (resubmitting returns 200 + the existing transaction)
 curl -X POST http://localhost:8080/api/v1/transactions \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "businessId": "unique-client-id-123",
     "type": "CREDIT",
@@ -56,13 +76,13 @@ curl -X POST http://localhost:8080/api/v1/transactions \
   }'
 
 # Get by transaction id
-curl http://localhost:8080/api/v1/transactions/{transactionId}
+curl http://localhost:8080/api/v1/transactions/{transactionId} -H "Authorization: Bearer $TOKEN"
 
 # Get by businessId
-curl http://localhost:8080/api/v1/transactions/business/{businessId}
+curl http://localhost:8080/api/v1/transactions/business/{businessId} -H "Authorization: Bearer $TOKEN"
 
 # List, paginated and filterable by status
-curl "http://localhost:8080/api/v1/transactions?status=RECEIVED&page=0&limit=20"
+curl "http://localhost:8080/api/v1/transactions?status=RECEIVED&page=0&limit=20" -H "Authorization: Bearer $TOKEN"
 ```
 
 Idempotency (ADR-003) is strict: resubmitting a `businessId` with the exact same
@@ -71,7 +91,5 @@ payload (amount, accounts, type, originalTransactionId) is rejected as a conflic
 rather than silently accepted. Reversal accounts must mirror the original transaction's,
 swapped (ADR-008).
 
-Authentication (JWT, required on every endpoint per [ADR-007](docs/adr/007-security-strategy.md))
-and RFC 7807 error responses for not-found / validation / conflict cases are not wired
-up yet — until then, endpoints are open and unhandled business exceptions surface as a
-generic 500.
+RFC 7807 error responses for not-found / validation / conflict cases are not wired up
+yet (Phase 9) — until then, unhandled business exceptions surface as a generic 500.
