@@ -68,11 +68,14 @@ com.patken.transaction
 ├── domain/         Transaction (JPA), TransactionType, TransactionStatus, TransactionStateMachine
 │   ├── annotation/ @Terminal
 │   └── exception/  InvalidStateTransition, ReversalNotAllowed, TransactionNotFound, InvalidTransactionRequest
+├── domain/         (also) TransactionFailureAudit (append-only per-attempt audit), FailureType
 ├── service/        TransactionCommandService (validation, idempotency), TransactionQueryService
 │   └── mapper/     TransactionMapper (MapStruct, entity → response DTO)
-├── persistence/    TransactionRepository (Spring Data JPA),
-│                   TransactionGateway (idempotent insert, locking, transaction boundaries)
-├── messaging/      producer/ + consumer/ (Kafka command/event flow, backend simulator)
+├── persistence/    TransactionRepository (Spring Data JPA; lockForProcessing = SKIP LOCKED),
+│                   TransactionFailureAuditRepository,
+│                   TransactionGateway (create-path idempotent insert, ADR-003)
+├── messaging/      producer/ + consumer/ (Kafka command/event flow, backend simulator);
+│                   consumer/TransactionProcessor = the locked, transactional per-attempt unit
 ├── recovery/       StuckTransactionScheduler, UnpublishedTransactionScheduler (ShedLock)
 ├── observability/  CorrelationIdFilter (MDC), TransactionMetrics (Micrometer)
 └── config/         Kafka, Retry, ShedLock, Security, Jackson

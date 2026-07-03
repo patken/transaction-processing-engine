@@ -54,10 +54,20 @@ Security's Resource Server already abstracts this).
 Contract-first, defined in `src/main/resources/openapi/oas3.yaml`. Transaction commands
 (`CREDIT`, `DEBIT`, `REVERSAL`) move through a validated status lifecycle:
 `RECEIVED → VALIDATED → DISPATCHED → PROCESSING → COMPLETED`, with `FAILED → RETRY →
-DEAD_LETTERED` as the failure path. Creating a transaction now drives it through this
-full lifecycle automatically — no manual intervention: the API persists it (`RECEIVED`),
-publishes it to Kafka, and a consumer takes it the rest of the way to `COMPLETED`
-(happy path only for now; retry/DLQ on failures is Phase 5).
+DEAD_LETTERED` as the failure path. Creating a transaction drives it through this full
+lifecycle automatically — no manual intervention: the API persists it (`RECEIVED`),
+publishes it to Kafka, and a consumer takes it the rest of the way to `COMPLETED`.
+
+A processing failure is retried with exponential backoff (each attempt claims the row
+with `SELECT ... FOR UPDATE SKIP LOCKED`, ADR-002); after the configured ceiling the
+transaction is `DEAD_LETTERED`, the original command is published to the `transaction.dlq`
+topic for ops replay, and every failed attempt is recorded in a `transaction_failure_audit`
+row (ADR-004). To see it live, start the stack with a forced failure rate:
+
+```bash
+BACKEND_SIMULATOR_FAILURE_RATE=1.0 docker compose up -d --build
+# every transaction now fails processing 3× then lands on transaction.dlq as DEAD_LETTERED
+```
 
 Endpoints implemented so far (base path `/api/v1`, all requiring `Authorization: Bearer $TOKEN` — see above):
 
