@@ -93,6 +93,70 @@ public class TransactionProcessor {
     }
 
     /**
+     * Treats a stuck transaction (in-flight but untouched past the timeout, ADR-006) as
+     * one more failed attempt — reusing the exact same {@link #recordFailureAndDecide}
+     * path as a processing failure, so the retry ceiling and audit trail behave
+     * identically. A stuck transaction under the ceiling comes back as RETRY_SCHEDULED
+     * (the caller re-dispatches to Kafka; the consumer does RETRY → DISPATCHED on
+     * re-entry, ADR-005/D2); at the ceiling it comes back DEAD_LETTERED.
+     *
+     * <p>Locks with SKIP LOCKED first: if a consumer is genuinely still processing the
+     * row (a slow but live attempt), the lock is skipped and the "stuck" transaction is
+     * left alone rather than yanked out from under it.
+     */
+    @Transactional
+    public Outcome recoverStuck(UUID transactionId) {
+        Optional<Transaction> locked = repository.lockForProcessing(transactionId);
+        if (locked.isEmpty()) {
+            return new Outcome(Result.LOCK_SKIPPED, null, null, null);
+        }
+        Transaction txn = locked.get();
+        if (txn.getStatus().isTerminal() || !isInFlight(txn.getStatus())) {
+            // Progressed since the batch was read — no longer stuck.
+            return new Outcome(Result.ALREADY_TERMINAL, txn, null, null);
+        }
+        return recordFailureAndDecide(txn,
+                "Recovered from a stuck " + txn.getStatus() + " state (processing timed out)",
+                /* forceDeadLetter */ false);
+    }
+
+    private static boolean isInFlight(TransactionStatus status) {
+        return status == TransactionStatus.DISPATCHED
+                || status == TransactionStatus.PROCESSING
+                || status == TransactionStatus.RETRY;
+    }
+
+    /**
+     * Records a failed publish attempt for the outbox recovery scheduler (ADR-004,
+     * {@code failure_type = PUBLISH}). Under the ceiling the transaction stays RECEIVED
+     * with {@code kafka_published = false} — the next unpublished-recovery cycle retries
+     * the publish. At the ceiling it's dead-lettered (RECEIVED → FAILED → DEAD_LETTERED),
+     * which ends the retry loop that ADR-004 was written to bound. No {@code SELECT FOR
+     * UPDATE} needed: the scheduler only touches rows older than the API-thread publish
+     * window, and ShedLock guarantees a single scheduler instance.
+     *
+     * @return true if this attempt exhausted the ceiling and dead-lettered the transaction.
+     */
+    @Transactional
+    public boolean recordPublishFailure(UUID transactionId, String reason) {
+        Transaction txn = repository.findById(transactionId).orElse(null);
+        if (txn == null || txn.isKafkaPublished() || txn.getStatus().isTerminal()) {
+            return false; // published or finished between the scan and now
+        }
+        int attempt = txn.getRetryCount() + 1;
+        txn.setRetryCount(attempt);
+        txn.setErrorMessage(reason);
+        auditRepository.save(new TransactionFailureAudit(txn.getId(), FailureType.PUBLISH, attempt, reason));
+
+        if (attempt >= maxRetries) {
+            advance(txn, TransactionStatus.FAILED);
+            advance(txn, TransactionStatus.DEAD_LETTERED);
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Drives the managed entity forward to COMPLETED from wherever it currently is —
      * a fresh RECEIVED, a RETRY re-entry (RETRY → DISPATCHED, ADR-005), or a
      * crash-mid-flight resume. {@link #advance} skips transitions already applied, so

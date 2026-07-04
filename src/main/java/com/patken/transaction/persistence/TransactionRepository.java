@@ -10,6 +10,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -48,4 +51,29 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      */
     @Query(value = "SELECT * FROM transactions WHERE id = :id FOR UPDATE SKIP LOCKED", nativeQuery = true)
     Optional<Transaction> lockForProcessing(@Param("id") UUID id);
+
+    /**
+     * Stuck transactions for {@code StuckTransactionScheduler} (ADR-006): still in a
+     * non-terminal in-flight state and untouched for longer than the timeout. RETRY is
+     * included so a re-dispatch whose republish was lost (e.g. Kafka was down during
+     * recovery) is picked up again — a consumer's own mid-backoff RETRY is far younger
+     * than the timeout, so it's never mistaken for stuck. {@code Pageable} bounds the
+     * batch so one cycle can't try to load the whole table.
+     */
+    @Query("SELECT t FROM Transaction t WHERE t.status IN :statuses AND t.updatedAt < :cutoff ORDER BY t.updatedAt ASC")
+    List<Transaction> findStuck(@Param("statuses") Collection<TransactionStatus> statuses,
+                                @Param("cutoff") Instant cutoff, Pageable pageable);
+
+    /**
+     * Persisted-but-unpublished transactions for {@code UnpublishedTransactionScheduler}
+     * (ADR-001) — the outbox scan. The {@code created_at} age gate keeps a just-created
+     * row (whose API thread is still mid-publish) out of the batch. Restricted to
+     * RECEIVED: a transaction is only ever unpublished before it's been consumed, and
+     * once publish retries are exhausted it becomes DEAD_LETTERED — which still has
+     * {@code kafka_published = false} but must not be rescanned. Served by the partial
+     * index {@code idx_transactions_kafka_published} on {@code kafka_published = FALSE}.
+     */
+    @Query("SELECT t FROM Transaction t WHERE t.kafkaPublished = false AND t.status = "
+            + "com.patken.transaction.domain.TransactionStatus.RECEIVED AND t.createdAt < :cutoff ORDER BY t.createdAt ASC")
+    List<Transaction> findUnpublished(@Param("cutoff") Instant cutoff, Pageable pageable);
 }
