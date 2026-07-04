@@ -39,7 +39,12 @@ public class KafkaTransactionProducer {
     }
 
     public void publishCommand(Transaction transaction) throws PublishException {
-        TransactionCommandMessage message = new TransactionCommandMessage(
+        send(KafkaTopics.COMMANDS, transaction.getId().toString(), transaction.getCorrelationId(),
+                toCommandMessage(transaction));
+    }
+
+    private static TransactionCommandMessage toCommandMessage(Transaction transaction) {
+        return new TransactionCommandMessage(
                 transaction.getId(),
                 transaction.getBusinessId(),
                 transaction.getType(),
@@ -51,7 +56,6 @@ public class KafkaTransactionProducer {
                 transaction.getCorrelationId(),
                 Instant.now()
         );
-        send(KafkaTopics.COMMANDS, transaction.getId().toString(), transaction.getCorrelationId(), message);
     }
 
     public void publishEvent(Transaction transaction, TransactionStatus previousStatus) throws PublishException {
@@ -81,6 +85,11 @@ public class KafkaTransactionProducer {
                     new RecordHeader("correlationId", command.correlationId().getBytes(StandardCharsets.UTF_8)));
         }
         awaitSend(KafkaTopics.DLQ, record);
+    }
+
+    /** DLQ publish from a transaction row (the recovery schedulers have the entity, not the original message). */
+    public void publishToDlq(Transaction transaction, String reason) throws PublishException {
+        publishToDlq(toCommandMessage(transaction), reason);
     }
 
     private void send(String topic, String key, String correlationId, Object payload) throws PublishException {

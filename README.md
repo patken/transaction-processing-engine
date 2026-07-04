@@ -47,6 +47,7 @@ Security's Resource Server already abstracts this).
 - GitHub Actions CI
 - OpenAPI 3 (contract-first, `openapi-generator-maven-plugin`)
 - Spring Security (OAuth2 Resource Server, locally-signed JWT — ADR-007)
+- ShedLock (DB-backed distributed lock for the recovery schedulers — ADR-006)
 - Testcontainers (PostgreSQL, Kafka) for integration tests — `mvn test` for unit tests, `mvn verify` runs both
 
 ## API
@@ -68,6 +69,15 @@ row (ADR-004). To see it live, start the stack with a forced failure rate:
 BACKEND_SIMULATOR_FAILURE_RATE=1.0 docker compose up -d --build
 # every transaction now fails processing 3× then lands on transaction.dlq as DEAD_LETTERED
 ```
+
+Two ShedLock-guarded recovery schedulers (ADR-006) are the safety net behind that
+primary retry path: one re-dispatches transactions stuck in-flight (a consumer that
+died mid-processing), the other retries the Kafka publish for transactions that are
+durable in the DB but never made it onto the topic (persist-before-publish, ADR-001) —
+both capped at the same retry ceiling before dead-lettering. ShedLock (a DB lock table)
+ensures exactly one instance runs each job per cycle in a multi-node deployment. The
+cadence and thresholds are tunable (`RECOVERY_POLL_INTERVAL_MS`, `RECOVERY_STUCK_TIMEOUT`,
+…) — set them low to watch recovery act in a demo.
 
 Endpoints implemented so far (base path `/api/v1`, all requiring `Authorization: Bearer $TOKEN` — see above):
 

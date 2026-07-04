@@ -40,11 +40,18 @@ transaction-engine:
     # 0.0 = never fail. Set > 0 (e.g. 1.0) to exercise the retry → DLQ path manually.
     failure-rate: ${BACKEND_SIMULATOR_FAILURE_RATE:0.0}
   processing:
-    # Shared retry ceiling (ADR-004) — reached by both consumer processing retries and,
-    # in Phase 6, the unpublished-transaction publish retries. Beyond it: DEAD_LETTERED + DLQ.
+    # Shared retry ceiling (ADR-004) — reached by consumer processing retries, stuck-transaction
+    # recovery, and unpublished-transaction publish retries alike. Beyond it: DEAD_LETTERED + DLQ.
     max-retries: ${PROCESSING_MAX_RETRIES:3}
     backoff-ms: ${PROCESSING_BACKOFF_MS:100}
     backoff-multiplier: ${PROCESSING_BACKOFF_MULTIPLIER:2.0}
+  recovery:
+    # ShedLock-guarded recovery schedulers (ADR-006). Coarse cadence — this is a safety net,
+    # not the primary retry path (that's the consumer's own loop).
+    poll-interval-ms: ${RECOVERY_POLL_INTERVAL_MS:300000}   # 5 min
+    stuck-timeout: ${RECOVERY_STUCK_TIMEOUT:PT10M}          # in-flight + idle this long = stuck
+    unpublished-min-age: ${RECOVERY_UNPUBLISHED_MIN_AGE:PT1M}
+    batch-size: ${RECOVERY_BATCH_SIZE:100}
   security:
     # ADR-007: locally-signed JWT, demo-grade only — never reuse this secret for
     # anything beyond this portfolio's demo. Override via JWT_SECRET in any

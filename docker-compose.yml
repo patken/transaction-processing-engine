@@ -54,6 +54,11 @@ services:
       # Demo knob: set to e.g. 1.0 to make every transaction fail processing and land
       # on the DLQ after the retry ceiling. Defaults to 0.0 (never fail).
       BACKEND_SIMULATOR_FAILURE_RATE: "${BACKEND_SIMULATOR_FAILURE_RATE:-0.0}"
+      # Recovery-scheduler cadence/thresholds (ADR-006). Defaults are production-ish;
+      # override to small values to watch recovery act in a demo.
+      RECOVERY_POLL_INTERVAL_MS: "${RECOVERY_POLL_INTERVAL_MS:-300000}"
+      RECOVERY_STUCK_TIMEOUT: "${RECOVERY_STUCK_TIMEOUT:-PT10M}"
+      RECOVERY_UNPUBLISHED_MIN_AGE: "${RECOVERY_UNPUBLISHED_MIN_AGE:-PT1M}"
     depends_on:
       postgres:
         condition: service_healthy
