@@ -31,6 +31,7 @@
 		<openapi-generator.version>7.16.0</openapi-generator.version>
 		<mapstruct.version>1.6.3</mapstruct.version>
 		<shedlock.version>6.6.0</shedlock.version>
+		<jacoco.version>0.8.12</jacoco.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -180,6 +181,63 @@
 						</path>
 					</annotationProcessorPaths>
 				</configuration>
+			</plugin>
+			<!-- Coverage gate. Bound to the unit-test run (Surefire) only, so `mvn test` and
+			     `mvn verify` enforce the same bar whether or not Docker is present — the *IT
+			     suites are Docker-gated (disabledWithoutDocker) and would otherwise make the
+			     threshold move between a laptop and CI. Generated sources (OpenAPI, MapStruct
+			     impls) are excluded: they're not ours to test. -->
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>${jacoco.version}</version>
+				<configuration>
+					<excludes>
+						<exclude>com/patken/transaction/api/generated/**</exclude>
+						<exclude>**/*MapperImpl.*</exclude>
+						<exclude>com/patken/transaction/TransactionProcessingEngineApplication.*</exclude>
+					</excludes>
+				</configuration>
+				<executions>
+					<execution>
+						<id>prepare-agent</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>test</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>check</id>
+						<phase>test</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+						<configuration>
+							<rules>
+								<rule>
+									<element>PACKAGE</element>
+									<includes>
+										<include>com.patken.transaction.domain</include>
+										<include>com.patken.transaction.service</include>
+									</includes>
+									<limits>
+										<limit>
+											<counter>INSTRUCTION</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>0.80</minimum>
+										</limit>
+									</limits>
+								</rule>
+							</rules>
+						</configuration>
+					</execution>
+				</executions>
 			</plugin>
 			<plugin>
 				<groupId>org.openapitools</groupId>
