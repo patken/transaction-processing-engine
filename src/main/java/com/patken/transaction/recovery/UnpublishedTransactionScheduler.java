@@ -53,7 +53,9 @@ public class UnpublishedTransactionScheduler {
         this.batchSize = batchSize;
     }
 
-    @Scheduled(fixedDelayString = "${transaction-engine.recovery.poll-interval-ms:300000}")
+    @Scheduled(
+            fixedDelayString = "${transaction-engine.recovery.poll-interval-ms:300000}",
+            initialDelayString = "${transaction-engine.recovery.initial-delay-ms:0}")
     @SchedulerLock(name = SchedulerHealthIndicator.UNPUBLISHED_JOB)
     public void recoverUnpublishedTransactions() {
         heartbeat.recordRun(SchedulerHealthIndicator.UNPUBLISHED_JOB);

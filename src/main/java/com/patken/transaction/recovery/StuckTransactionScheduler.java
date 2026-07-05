@@ -62,7 +62,9 @@ public class StuckTransactionScheduler {
         this.batchSize = batchSize;
     }
 
-    @Scheduled(fixedDelayString = "${transaction-engine.recovery.poll-interval-ms:300000}")
+    @Scheduled(
+            fixedDelayString = "${transaction-engine.recovery.poll-interval-ms:300000}",
+            initialDelayString = "${transaction-engine.recovery.initial-delay-ms:0}")
     @SchedulerLock(name = SchedulerHealthIndicator.STUCK_JOB)
     public void recoverStuckTransactions() {
         heartbeat.recordRun(SchedulerHealthIndicator.STUCK_JOB);

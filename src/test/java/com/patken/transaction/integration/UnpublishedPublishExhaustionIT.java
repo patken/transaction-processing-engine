@@ -56,6 +56,9 @@ class UnpublishedPublishExhaustionIT {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("transaction-engine.processing.max-retries", () -> MAX_RETRIES);
         registry.add("transaction-engine.recovery.poll-interval-ms", () -> 3_600_000);
+        // Also push the first run far out: the manual invocation below is the only run we want,
+        // otherwise the startup auto-fire can hold the ShedLock lock and skip our manual call.
+        registry.add("transaction-engine.recovery.initial-delay-ms", () -> 3_600_000);
     }
 
     @MockitoBean
