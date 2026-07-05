@@ -6,7 +6,10 @@ A simplified, open-source take on a real-world transaction command platform, bui
 
 ## Status
 
-Work in progress.
+Feature-complete. The full command → Kafka → consumer → completion pipeline runs
+end-to-end with idempotency, pessimistic locking, capped retries + DLQ, ShedLock-guarded
+recovery, JWT auth, observability, and RFC 7807 error handling. Clone, `docker compose up`,
+and the [quickstart](#quickstart) curl examples work with no extra configuration.
 
 ## Documentation
 
@@ -50,6 +53,7 @@ Security's Resource Server already abstracts this).
 - ShedLock (DB-backed distributed lock for the recovery schedulers — ADR-006)
 - Micrometer + Prometheus, structured JSON logging (ECS), custom health indicators
 - Testcontainers (PostgreSQL, Kafka) for integration tests — `mvn test` for unit tests, `mvn verify` runs both
+- JaCoCo coverage gate (≥80% instructions on `domain`/`service`, enforced in CI)
 
 ## API
 
@@ -132,5 +136,11 @@ payload (amount, accounts, type, originalTransactionId) is rejected as a conflic
 rather than silently accepted. Reversal accounts must mirror the original transaction's,
 swapped (ADR-008).
 
-RFC 7807 error responses for not-found / validation / conflict cases are not wired up
-yet (Phase 9) — until then, unhandled business exceptions surface as a generic 500.
+Errors are RFC 7807 `application/problem+json` (the contract's `Problem` schema): `404`
+for an unknown transaction, `400` for a malformed body / failed validation / bad
+parameter, `409` for an idempotency conflict, an invalid state transition, or a
+disallowed reversal. Each response echoes the request's `correlationId`, so a
+client-reported failure traces straight to its logs. A single `GlobalExceptionHandler`
+drives this: business errors declare their mapping with a `@ProblemMapping(status, title)`
+annotation, so adding an error type never touches the handler. Anything unmapped becomes
+a deliberately opaque `500` that leaks no internals.

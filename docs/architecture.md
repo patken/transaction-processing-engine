@@ -66,8 +66,9 @@ com.patken.transaction
 ├── api/            TransactionController (implements the OpenAPI-generated interface),
 │                   GlobalExceptionHandler (RFC 7807 problem+json)
 ├── domain/         Transaction (JPA), TransactionType, TransactionStatus, TransactionStateMachine
-│   ├── annotation/ @Terminal
-│   └── exception/  InvalidStateTransition, ReversalNotAllowed, TransactionNotFound, InvalidTransactionRequest
+│   ├── annotation/ @Terminal, @ProblemMapping (HTTP status + title per business error)
+│   └── exception/  DomainException (base) + IdempotencyConflict, InvalidStateTransition,
+│                   ReversalNotAllowed, TransactionNotFound, InvalidTransactionRequest
 ├── domain/         (also) TransactionFailureAudit (append-only per-attempt audit), FailureType
 ├── service/        TransactionCommandService (validation, idempotency), TransactionQueryService
 │   └── mapper/     TransactionMapper (MapStruct, entity → response DTO)
@@ -82,7 +83,7 @@ com.patken.transaction
 └── config/         Kafka, Retry, ShedLock, Security, Jackson
 ```
 
-The API is **contract-first**: `src/main/resources/openapi/oas3.yaml` is the source of truth; controller interfaces and DTOs are generated at build time (`openapi-generator-maven-plugin`). Errors follow RFC 7807 (`application/problem+json`) with a single shared `Problem` schema.
+The API is **contract-first**: `src/main/resources/openapi/oas3.yaml` is the source of truth; controller interfaces and DTOs are generated at build time (`openapi-generator-maven-plugin`). Errors follow RFC 7807 (`application/problem+json`) with a single shared `Problem` schema, produced by one `GlobalExceptionHandler`: each business error carries a `@ProblemMapping(status, title)` annotation that the handler reads reflectively, so the whole `DomainException` family is served by one handler method and a new error type is added by annotating it, not by editing the handler. Every problem response echoes the request's `correlationId` (Phase 7); unmapped exceptions collapse to an opaque `500`. 401/403 are handled earlier, by the Spring Security filter chain.
 
 ## Data model
 
@@ -106,3 +107,5 @@ Two tiers, no in-memory database anywhere:
 
 - **Unit** (`unit/*Test`, Surefire, `mvn test`): no Spring context, no DB, mocked collaborators. Includes intent-pinning tests — e.g., the gateway must *not* pre-check before inserting (ADR-003), and the state machine test enumerates all 64 status pairs.
 - **Integration** (`integration/*IT`, Failsafe, `mvn verify`): Testcontainers with real PostgreSQL and Kafka. H2 is deliberately banned: `SKIP LOCKED`, partial indexes, JSONB, and `gen_random_uuid()` are Postgres-specific and are precisely the behaviors worth testing.
+
+A JaCoCo gate fails the build below 80% instruction coverage on `domain` and `service`. It's bound to the unit-test phase (not the integration run) on purpose: the `*IT` suites are Docker-gated and skip where Docker is absent, so gating on them would move the threshold between a laptop and CI — the gate stays deterministic and reproducible everywhere.

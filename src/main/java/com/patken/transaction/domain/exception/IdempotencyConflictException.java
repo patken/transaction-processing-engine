@@ -1,5 +1,7 @@
 package com.patken.transaction.domain.exception;
 
+import com.patken.transaction.domain.annotation.ProblemMapping;
+
 /**
  * Thrown when a {@code businessId} is reused with a business payload that differs
  * from the transaction originally stored under that key (ADR-003, amended after
@@ -7,7 +9,8 @@ package com.patken.transaction.domain.exception;
  * same-key-different-payload request is a client bug that must surface, not be
  * silently answered with the original transaction. Mapped to HTTP 409.
  */
-public class IdempotencyConflictException extends RuntimeException {
+@ProblemMapping(status = 409, title = "Idempotency conflict")
+public class IdempotencyConflictException extends DomainException {
 
     public IdempotencyConflictException(String businessId) {
         super("businessId " + businessId + " was already used with a different transaction payload");
