@@ -61,6 +61,7 @@ class RecoverySchedulerIT {
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
         registry.add("transaction-engine.processing.max-retries", () -> MAX_RETRIES);
         registry.add("transaction-engine.recovery.poll-interval-ms", () -> 3_600_000); // don't auto-fire during the test
+        registry.add("transaction-engine.recovery.initial-delay-ms", () -> 3_600_000); // ...including the startup run
     }
 
     @Autowired

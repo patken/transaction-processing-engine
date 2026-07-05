@@ -4,6 +4,9 @@ import com.patken.transaction.domain.Transaction;
 import com.patken.transaction.domain.TransactionStatus;
 import com.patken.transaction.messaging.consumer.TransactionProcessor;
 import com.patken.transaction.messaging.producer.KafkaTransactionProducer;
+import com.patken.transaction.observability.SchedulerHealthIndicator;
+import com.patken.transaction.observability.SchedulerHeartbeat;
+import com.patken.transaction.observability.TransactionMetrics;
 import com.patken.transaction.persistence.TransactionRepository;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.slf4j.Logger;
@@ -40,23 +43,31 @@ public class StuckTransactionScheduler {
     private final TransactionRepository repository;
     private final TransactionProcessor processor;
     private final KafkaTransactionProducer producer;
+    private final TransactionMetrics metrics;
+    private final SchedulerHeartbeat heartbeat;
     private final Duration stuckTimeout;
     private final int batchSize;
 
     public StuckTransactionScheduler(TransactionRepository repository, TransactionProcessor processor,
-                                     KafkaTransactionProducer producer,
+                                     KafkaTransactionProducer producer, TransactionMetrics metrics,
+                                     SchedulerHeartbeat heartbeat,
                                      @Value("${transaction-engine.recovery.stuck-timeout:PT10M}") Duration stuckTimeout,
                                      @Value("${transaction-engine.recovery.batch-size:100}") int batchSize) {
         this.repository = repository;
         this.processor = processor;
         this.producer = producer;
+        this.metrics = metrics;
+        this.heartbeat = heartbeat;
         this.stuckTimeout = stuckTimeout;
         this.batchSize = batchSize;
     }
 
-    @Scheduled(fixedDelayString = "${transaction-engine.recovery.poll-interval-ms:300000}")
-    @SchedulerLock(name = "stuckTransactionRecovery")
+    @Scheduled(
+            fixedDelayString = "${transaction-engine.recovery.poll-interval-ms:300000}",
+            initialDelayString = "${transaction-engine.recovery.initial-delay-ms:0}")
+    @SchedulerLock(name = SchedulerHealthIndicator.STUCK_JOB)
     public void recoverStuckTransactions() {
+        heartbeat.recordRun(SchedulerHealthIndicator.STUCK_JOB);
         Instant cutoff = Instant.now().minus(stuckTimeout);
         List<Transaction> stuck = repository.findStuck(IN_FLIGHT, cutoff, PageRequest.of(0, batchSize));
         if (stuck.isEmpty()) {
@@ -69,8 +80,12 @@ public class StuckTransactionScheduler {
     private void recover(Transaction transaction) {
         TransactionProcessor.Outcome outcome = processor.recoverStuck(transaction.getId());
         switch (outcome.result()) {
-            case RETRY_SCHEDULED -> redispatch(outcome.transaction());
+            case RETRY_SCHEDULED -> {
+                metrics.recordStuckRecovered();
+                redispatch(outcome.transaction());
+            }
             case DEAD_LETTERED -> {
+                metrics.recordStuckRecovered();
                 log.warn("Stuck transaction {} exhausted retries; dead-lettering", transaction.getId());
                 publishToDlqBestEffort(outcome.transaction(), outcome.reason());
             }

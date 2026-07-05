@@ -8,11 +8,13 @@ import com.patken.transaction.domain.exception.InvalidTransactionRequestExceptio
 import com.patken.transaction.domain.exception.ReversalNotAllowedException;
 import com.patken.transaction.domain.exception.TransactionNotFoundException;
 import com.patken.transaction.messaging.producer.KafkaTransactionProducer;
+import com.patken.transaction.observability.TransactionMetrics;
 import com.patken.transaction.persistence.TransactionGateway;
 import com.patken.transaction.persistence.TransactionRepository;
 import com.patken.transaction.service.TransactionCommandService;
 import com.patken.transaction.service.mapper.TransactionMapper;
 import com.patken.transaction.service.mapper.TransactionMapperImpl;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -47,7 +49,8 @@ class TransactionCommandServiceTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        service = new TransactionCommandService(repository, gateway, mapper, producer);
+        TransactionMetrics metrics = new TransactionMetrics(new SimpleMeterRegistry());
+        service = new TransactionCommandService(repository, gateway, mapper, producer, metrics);
     }
 
     @Test

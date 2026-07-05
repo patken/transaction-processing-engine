@@ -13,6 +13,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.kafka.KafkaContainer;
+import org.testcontainers.utility.DockerImageName;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -21,9 +23,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * ADR-007: every business endpoint requires a valid JWT, GET included; {@code
- * /dev/token} and the open actuator endpoints are the only exceptions. Real Postgres
- * via Testcontainers — Kafka isn't needed here since these requests are all rejected
- * before touching the command/query services.
+ * /dev/token} and the open actuator endpoints are the only exceptions. Real Postgres +
+ * Kafka via Testcontainers — Kafka is needed because {@code /actuator/health} now
+ * aggregates the Kafka connectivity indicator (Phase 7), so a genuine 200 requires it up.
  */
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -36,11 +38,15 @@ class SecurityIT {
             .withUsername("transaction_engine")
             .withPassword("transaction_engine");
 
+    @Container
+    static final KafkaContainer KAFKA = new KafkaContainer(DockerImageName.parse("apache/kafka:3.8.0"));
+
     @DynamicPropertySource
     static void datasourceProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
     }
 
     @Autowired

@@ -77,7 +77,8 @@ com.patken.transaction
 ├── messaging/      producer/ + consumer/ (Kafka command/event flow, backend simulator);
 │                   consumer/TransactionProcessor = the locked, transactional per-attempt unit
 ├── recovery/       StuckTransactionScheduler, UnpublishedTransactionScheduler (ShedLock)
-├── observability/  CorrelationIdFilter (MDC), TransactionMetrics (Micrometer)
+├── observability/  CorrelationIdFilter (MDC), TransactionMetrics (Micrometer),
+│                   KafkaHealthIndicator, SchedulerHealthIndicator + SchedulerHeartbeat
 └── config/         Kafka, Retry, ShedLock, Security, Jackson
 ```
 
@@ -97,7 +98,7 @@ One `transactions` table — deliberately also the outbox (ADR-001) and the dead
 
 ## Observability
 
-Every log line carries `correlationId` (propagated HTTP → MDC → Kafka header → consumer), `transactionId`, `businessId`, and `status`. Micrometer counters/timers (created, completed, failed, dead-lettered, publish failures, stuck-recovered, end-to-end processing duration) are exposed on the Prometheus actuator endpoint. Health checks cover PostgreSQL, Kafka connectivity, and scheduler liveness.
+A `correlationId` — established per request from an inbound `X-Correlation-Id` header or minted (`CorrelationIdFilter`) — is propagated HTTP → MDC → payload → Kafka header → consumer MDC, so one id ties an API call to its consumer-side log lines. `transactionId` and `businessId` join it in the MDC during processing. `status` is conveyed in log *messages* rather than as an MDC field — it's dynamic (changes every transition), and a frozen MDC copy would go stale and mislead. Logs are structured JSON (ECS) in the container; MDC keys surface as top-level fields (filterable with `jq`). Micrometer counters/timer — `transactions.creations` (by type), `.completed`, `.failed`, `.dead_lettered`, `.processing.duration` (RECEIVED → COMPLETED), `.stuck.recovered`, `kafka.publish.failures` — are exposed on the Prometheus actuator endpoint. Health aggregates PostgreSQL (default), Kafka broker connectivity, and recovery-scheduler liveness.
 
 ## Testing strategy
 

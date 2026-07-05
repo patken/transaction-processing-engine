@@ -8,6 +8,7 @@ import com.patken.transaction.domain.exception.InvalidTransactionRequestExceptio
 import com.patken.transaction.domain.exception.ReversalNotAllowedException;
 import com.patken.transaction.domain.exception.TransactionNotFoundException;
 import com.patken.transaction.messaging.producer.KafkaTransactionProducer;
+import com.patken.transaction.observability.TransactionMetrics;
 import com.patken.transaction.persistence.TransactionGateway;
 import com.patken.transaction.persistence.TransactionRepository;
 import com.patken.transaction.service.mapper.TransactionMapper;
@@ -31,13 +32,16 @@ public class TransactionCommandService {
     private final TransactionGateway gateway;
     private final TransactionMapper mapper;
     private final KafkaTransactionProducer producer;
+    private final TransactionMetrics metrics;
 
     public TransactionCommandService(TransactionRepository repository, TransactionGateway gateway,
-                                      TransactionMapper mapper, KafkaTransactionProducer producer) {
+                                      TransactionMapper mapper, KafkaTransactionProducer producer,
+                                      TransactionMetrics metrics) {
         this.repository = repository;
         this.gateway = gateway;
         this.mapper = mapper;
         this.producer = producer;
+        this.metrics = metrics;
     }
 
     public CommandResult create(CreateTransactionRequest request, String correlationId) {
@@ -59,6 +63,7 @@ public class TransactionCommandService {
 
         TransactionGateway.PersistResult result = gateway.persistIdempotent(transaction);
         if (result.created()) {
+            metrics.recordCreated(result.transaction().getType());
             publish(result.transaction());
         }
         return new CommandResult(mapper.toResponse(result.transaction()), result.created());

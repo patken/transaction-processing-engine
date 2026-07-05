@@ -59,6 +59,10 @@ services:
       RECOVERY_POLL_INTERVAL_MS: "${RECOVERY_POLL_INTERVAL_MS:-300000}"
       RECOVERY_STUCK_TIMEOUT: "${RECOVERY_STUCK_TIMEOUT:-PT10M}"
       RECOVERY_UNPUBLISHED_MIN_AGE: "${RECOVERY_UNPUBLISHED_MIN_AGE:-PT1M}"
+      # Structured JSON logs (ECS) in the container — MDC fields (correlationId,
+      # transactionId, businessId, status) surface as top-level keys. Local `mvn
+      # spring-boot:run` leaves this unset and logs plain, human-readable text.
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: "${LOGGING_STRUCTURED_FORMAT_CONSOLE:-ecs}"
     depends_on:
       postgres:
         condition: service_healthy
