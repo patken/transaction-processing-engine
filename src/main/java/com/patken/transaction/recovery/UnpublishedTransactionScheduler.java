@@ -3,6 +3,8 @@ package com.patken.transaction.recovery;
 import com.patken.transaction.domain.Transaction;
 import com.patken.transaction.messaging.consumer.TransactionProcessor;
 import com.patken.transaction.messaging.producer.KafkaTransactionProducer;
+import com.patken.transaction.observability.SchedulerHealthIndicator;
+import com.patken.transaction.observability.SchedulerHeartbeat;
 import com.patken.transaction.persistence.TransactionRepository;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.slf4j.Logger;
@@ -35,23 +37,26 @@ public class UnpublishedTransactionScheduler {
     private final TransactionRepository repository;
     private final TransactionProcessor processor;
     private final KafkaTransactionProducer producer;
+    private final SchedulerHeartbeat heartbeat;
     private final Duration minAge;
     private final int batchSize;
 
     public UnpublishedTransactionScheduler(TransactionRepository repository, TransactionProcessor processor,
-                                           KafkaTransactionProducer producer,
+                                           KafkaTransactionProducer producer, SchedulerHeartbeat heartbeat,
                                            @Value("${transaction-engine.recovery.unpublished-min-age:PT1M}") Duration minAge,
                                            @Value("${transaction-engine.recovery.batch-size:100}") int batchSize) {
         this.repository = repository;
         this.processor = processor;
         this.producer = producer;
+        this.heartbeat = heartbeat;
         this.minAge = minAge;
         this.batchSize = batchSize;
     }
 
     @Scheduled(fixedDelayString = "${transaction-engine.recovery.poll-interval-ms:300000}")
-    @SchedulerLock(name = "unpublishedTransactionRecovery")
+    @SchedulerLock(name = SchedulerHealthIndicator.UNPUBLISHED_JOB)
     public void recoverUnpublishedTransactions() {
+        heartbeat.recordRun(SchedulerHealthIndicator.UNPUBLISHED_JOB);
         Instant cutoff = Instant.now().minus(minAge);
         List<Transaction> unpublished = repository.findUnpublished(cutoff, PageRequest.of(0, batchSize));
         if (unpublished.isEmpty()) {

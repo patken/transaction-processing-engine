@@ -5,6 +5,7 @@ import com.patken.transaction.domain.TransactionStatus;
 import com.patken.transaction.messaging.KafkaTopics;
 import com.patken.transaction.messaging.TransactionCommandMessage;
 import com.patken.transaction.messaging.TransactionEventMessage;
+import com.patken.transaction.observability.TransactionMetrics;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -33,9 +34,11 @@ public class KafkaTransactionProducer {
     private static final long SEND_TIMEOUT_SECONDS = 10;
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final TransactionMetrics metrics;
 
-    public KafkaTransactionProducer(KafkaTemplate<String, Object> kafkaTemplate) {
+    public KafkaTransactionProducer(KafkaTemplate<String, Object> kafkaTemplate, TransactionMetrics metrics) {
         this.kafkaTemplate = kafkaTemplate;
+        this.metrics = metrics;
     }
 
     public void publishCommand(Transaction transaction) throws PublishException {
@@ -105,8 +108,10 @@ public class KafkaTransactionProducer {
             kafkaTemplate.send(record).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            metrics.recordPublishFailure();
             throw new PublishException("Interrupted while publishing to " + topic, e);
         } catch (ExecutionException | TimeoutException e) {
+            metrics.recordPublishFailure();
             throw new PublishException("Failed to publish to " + topic, e);
         }
     }

@@ -5,8 +5,10 @@ import com.patken.transaction.api.generated.dto.CreateTransactionRequest;
 import com.patken.transaction.api.generated.dto.TransactionPage;
 import com.patken.transaction.api.generated.dto.TransactionResponse;
 import com.patken.transaction.domain.TransactionStatus;
+import com.patken.transaction.observability.MdcKeys;
 import com.patken.transaction.service.TransactionCommandService;
 import com.patken.transaction.service.TransactionQueryService;
+import org.slf4j.MDC;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,8 +31,9 @@ public class TransactionController implements TransactionsApi {
 
     @Override
     public ResponseEntity<TransactionResponse> createTransaction(CreateTransactionRequest createTransactionRequest) {
-        // TODO: replace with the correlationId propagated via CorrelationIdFilter/MDC.
-        String correlationId = UUID.randomUUID().toString();
+        // Established by CorrelationIdFilter for every request; travels with the transaction
+        // into Kafka and on to the consumer (spec §Observability).
+        String correlationId = MDC.get(MdcKeys.CORRELATION_ID);
 
         TransactionCommandService.CommandResult result = commandService.create(createTransactionRequest, correlationId);
         HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;

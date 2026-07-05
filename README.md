@@ -48,6 +48,7 @@ Security's Resource Server already abstracts this).
 - OpenAPI 3 (contract-first, `openapi-generator-maven-plugin`)
 - Spring Security (OAuth2 Resource Server, locally-signed JWT — ADR-007)
 - ShedLock (DB-backed distributed lock for the recovery schedulers — ADR-006)
+- Micrometer + Prometheus, structured JSON logging (ECS), custom health indicators
 - Testcontainers (PostgreSQL, Kafka) for integration tests — `mvn test` for unit tests, `mvn verify` runs both
 
 ## API
@@ -78,6 +79,26 @@ both capped at the same retry ceiling before dead-lettering. ShedLock (a DB lock
 ensures exactly one instance runs each job per cycle in a multi-node deployment. The
 cadence and thresholds are tunable (`RECOVERY_POLL_INTERVAL_MS`, `RECOVERY_STUCK_TIMEOUT`,
 …) — set them low to watch recovery act in a demo.
+
+## Observability
+
+- **Metrics** — Micrometer counters/timer on `/actuator/prometheus`:
+  `transactions_creations_total{type}`, `transactions_completed_total`,
+  `transactions_failed_total`, `transactions_dead_lettered_total`,
+  `transactions_processing_duration_seconds` (RECEIVED → COMPLETED),
+  `transactions_stuck_recovered_total`, `kafka_publish_failures_total`.
+- **Tracing** — a `correlationId` is established per request (reused from an inbound
+  `X-Correlation-Id` header or minted), travels with the transaction into Kafka and back
+  out to the consumer, and is in the MDC throughout — so one id ties an API call to its
+  consumer-side log lines. `transactionId` and `businessId` join it in the MDC during
+  processing.
+- **Structured logs** — JSON (ECS) on the console in the container
+  (`LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`, set in docker-compose); local `mvn
+  spring-boot:run` stays plain text. MDC fields surface as top-level keys, so
+  `docker compose logs app | jq 'select(.correlationId == "…")'` filters a whole trace.
+- **Health** — `/actuator/health` aggregates PostgreSQL (default), Kafka broker
+  connectivity, and recovery-scheduler liveness (a scheduler that ran and then went
+  silent past its interval reports DOWN).
 
 Endpoints implemented so far (base path `/api/v1`, all requiring `Authorization: Bearer $TOKEN` — see above):
 

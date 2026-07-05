@@ -7,12 +7,15 @@ import com.patken.transaction.domain.TransactionStateMachine;
 import com.patken.transaction.domain.TransactionStatus;
 import com.patken.transaction.domain.TransactionType;
 import com.patken.transaction.domain.exception.TransientProcessingException;
+import com.patken.transaction.observability.TransactionMetrics;
 import com.patken.transaction.persistence.TransactionFailureAuditRepository;
 import com.patken.transaction.persistence.TransactionRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -47,17 +50,20 @@ public class TransactionProcessor {
     private final TransactionFailureAuditRepository auditRepository;
     private final TransactionStateMachine stateMachine;
     private final BackendSimulator backendSimulator;
+    private final TransactionMetrics metrics;
     private final int maxRetries;
 
     public TransactionProcessor(TransactionRepository repository,
                                 TransactionFailureAuditRepository auditRepository,
                                 TransactionStateMachine stateMachine,
                                 BackendSimulator backendSimulator,
+                                TransactionMetrics metrics,
                                 @Value("${transaction-engine.processing.max-retries:3}") int maxRetries) {
         this.repository = repository;
         this.auditRepository = auditRepository;
         this.stateMachine = stateMachine;
         this.backendSimulator = backendSimulator;
+        this.metrics = metrics;
         this.maxRetries = maxRetries;
     }
 
@@ -86,6 +92,7 @@ public class TransactionProcessor {
 
         try {
             TransactionStatus previousStatus = driveToCompleted(txn);
+            metrics.recordCompleted(Duration.between(txn.getCreatedAt(), Instant.now()));
             return new Outcome(Result.COMPLETED, txn, previousStatus, null);
         } catch (TransientProcessingException e) {
             return recordFailureAndDecide(txn, e.getMessage(), /* forceDeadLetter */ false);
@@ -151,6 +158,7 @@ public class TransactionProcessor {
         if (attempt >= maxRetries) {
             advance(txn, TransactionStatus.FAILED);
             advance(txn, TransactionStatus.DEAD_LETTERED);
+            metrics.recordDeadLettered();
             return true;
         }
         return false;
@@ -186,9 +194,11 @@ public class TransactionProcessor {
         txn.setRetryCount(attempt);
         txn.setErrorMessage(errorMessage);
         auditRepository.save(new TransactionFailureAudit(txn.getId(), FailureType.PROCESSING, attempt, errorMessage));
+        metrics.recordFailed();
 
         if (forceDeadLetter || attempt >= maxRetries) {
             advance(txn, TransactionStatus.DEAD_LETTERED);
+            metrics.recordDeadLettered();
             return new Outcome(Result.DEAD_LETTERED, txn, null, errorMessage);
         }
         advance(txn, TransactionStatus.RETRY);

@@ -3,8 +3,10 @@ package com.patken.transaction.messaging.consumer;
 import com.patken.transaction.messaging.KafkaTopics;
 import com.patken.transaction.messaging.TransactionCommandMessage;
 import com.patken.transaction.messaging.producer.KafkaTransactionProducer;
+import com.patken.transaction.observability.MdcKeys;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
@@ -46,11 +48,20 @@ public class TransactionCommandConsumer {
 
     @KafkaListener(topics = KafkaTopics.COMMANDS)
     public void onMessage(TransactionCommandMessage message, Acknowledgment acknowledgment) {
-        // Ack only after the message is fully handled to a terminal-for-this-consumer
-        // outcome. An unexpected exception (a real bug / DB outage) propagates and the
-        // offset isn't committed — the record is redelivered rather than silently dropped.
-        handle(message);
-        acknowledgment.acknowledge();
+        // Continue the trace started at the API: the correlationId that travelled in the
+        // payload goes back into the MDC so consumer-side log lines carry it too.
+        MDC.put(MdcKeys.CORRELATION_ID, message.correlationId());
+        MDC.put(MdcKeys.TRANSACTION_ID, message.transactionId().toString());
+        MDC.put(MdcKeys.BUSINESS_ID, message.businessId());
+        try {
+            // Ack only after the message is fully handled to a terminal-for-this-consumer
+            // outcome. An unexpected exception (a real bug / DB outage) propagates and the
+            // offset isn't committed — the record is redelivered rather than silently dropped.
+            handle(message);
+            acknowledgment.acknowledge();
+        } finally {
+            MDC.clear();
+        }
     }
 
     private void handle(TransactionCommandMessage message) {
